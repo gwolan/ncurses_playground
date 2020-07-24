@@ -5,37 +5,42 @@
 #include <cstdint>
 #include <memory>
 #include <vector>
+#include <Miscellanous/Logger.hpp>
 
 class Graphics
 {
-
     public:
-    Graphics(std::vector<std::string> columnsNames);
+    Graphics(const std::vector<std::string>& columnsNames, const std::vector<std::vector<std::string>>& rowsValues);
     ~Graphics();
 
     void display();
 
 
     private:
-    void init();
+    std::string createRow(const std::vector<std::string>& columnsValues);
+    void createRows();
     uint32_t calculateWindowWidth();
     uint32_t calculateWindowHeight();
-    void initColumnsTitles();
     uint32_t calculateColumnWidth();
-    bool addNewRow(const std::vector<std::string>& columnsValues);
-    std::string createRow(const std::vector<std::string>& columnsValues);
-    void extendMenuByOneRow();
+    void initMenuItems();
+    void init();
+    void refreshMenu();
 
     WINDOW* _window;
     MENU* _menu;
     ITEM** _menuItems;
 
     std::vector<std::string> _columnsNames;
+    const std::vector<std::vector<std::string>>& _rowsValues;
+    std::vector<std::string> _rows;
+    const std::string _nullRow;
     const uint32_t _topPadding;
     const uint32_t _bottomPadding;
     const uint32_t _horizontalPadding;
-    uint32_t _rowsCount;
     uint32_t _columnsCount;
     uint32_t _columnWidth;
+    uint32_t _rowsCount;
     const uint32_t _baseMenuItemId;
+
+    Logger log;
 };
