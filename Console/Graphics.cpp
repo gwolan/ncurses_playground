@@ -6,7 +6,6 @@ Graphics::Graphics(const std::vector<std::string>& columnsNames, const std::vect
     , _menu(nullptr)
     , _menuItems(nullptr)
     , _columnsNames(columnsNames)
-    , _rowsValues(rowsValues)
     , _rows()
     , _nullRow("\0")
     , _topPadding(4)
@@ -16,46 +15,61 @@ Graphics::Graphics(const std::vector<std::string>& columnsNames, const std::vect
     , _columnWidth()
     , _rowsCount()
     , _baseMenuItemId(2)
-    , log("Graphics::")
 {
+    // set COLS and LINES variables
+    initscr();
+
+    // calculate each columns maximum string length
+    _columnWidth = calculateColumnWidth();
+    createRows(rowsValues);
     init();
 }
 
 Graphics::~Graphics()
 {
     wrefresh(_window);
+
+    // deallocate menu
     unpost_menu(_menu);
     free_menu(_menu);
 
+    // deallocate menu items
     for(uint32_t rowId = 0; rowId < _rowsCount; ++rowId)
     {
         free_item(_menuItems[rowId]);
     }
 
+    // deallocate window
     wborder(_window, ' ', ' ', ' ',' ',' ',' ',' ',' ');
     refresh();
     delwin(_window);
 
+    // stop ncurses
     endwin();
 }
 
 std::string Graphics::createRow(const std::vector<std::string>& columnsValues)
 {
+    // this method draws table row out of given values
     std::string result;
     uint32_t bordersCount = 0;
 
     for(const auto& columnValue : columnsValues)
     {
+        // calculate padding between columns row content and column separator
         uint32_t padding = _columnWidth - columnValue.size();
 
+        // build row
         result = result + columnValue + std::string(padding, ' ');
 
         if(++bordersCount != columnsValues.size())
         {
+            // add column separator if not all columns were filled
             result = result + "|";
         }
         else
         {
+            // append more padding to the last column to fill whole menu window size
             padding = calculateWindowWidth() - 2 - result.size();
             result = result + std::string(padding, ' ');
         }
@@ -64,20 +78,29 @@ std::string Graphics::createRow(const std::vector<std::string>& columnsValues)
     return result;
 }
 
-void Graphics::createRows()
+void Graphics::createRows(const std::vector<std::vector<std::string>>& rowsValues)
 {
+    // this method creates rows for table
+    // first two rows are column titles and line separator
+    // succesive rows are table records
+
+    // create row containing column titles
+    // create row containing line separator
     std::string menuTitle = createRow(_columnsNames);
     std::string lineSeparator = createRow(std::vector<std::string>(_columnsCount, std::string(_columnWidth, '-')));
+
+    // push rows to the rows vector as table column names and line separator
     _rows.push_back(menuTitle);
     _rows.push_back(lineSeparator);
 
-    for(const auto& row : _rowsValues)
+    // create following table records
+    for(const auto& row : rowsValues)
     {
         std::string menuItem = createRow(row);
-
         _rows.push_back(menuItem);
     }
 
+    // ncurses menu requires that menu item list is closed with null item
     _rows.push_back(_nullRow);
     _rowsCount = _rows.size();
 }
@@ -99,20 +122,26 @@ uint32_t Graphics::calculateColumnWidth()
 
 void Graphics::initMenuItems()
 {
+    // this method creates actual menu items from created rows
     _menuItems = new ITEM*[_rows.size()];
     for(uint32_t rowId = 0; rowId < _rows.size() - 1; ++rowId)
     {
         _menuItems[rowId] = new_item(_rows[rowId].c_str(), _rows[rowId].c_str());
     }
 
+    // add null item at the end
     _menuItems[_rows.size() - 1] = new_item(_rows.rbegin()->c_str(), _rows.rbegin()->c_str());
 }
 
 void Graphics::init()
 {
-    initscr();
+    // block OS signal receiver for special characters combinations like Ctrl + C
     raw();
+
+    // do not print user selections on the screen
     noecho();
+
+    // give keypad control to the main screen
     keypad(stdscr, true);
 
     _columnWidth = calculateColumnWidth();
@@ -121,20 +150,37 @@ void Graphics::init()
     uint32_t menuHeight = calculateWindowHeight() - 2;
     uint32_t menuWidth = calculateWindowWidth() - 2;
 
-    createRows();
     initMenuItems();
+
+    // allocate memory for parent window and its sibling menu
     _menu = new_menu(_menuItems);
     _window = newwin(windowHeight, windowWidth, _topPadding, _horizontalPadding);
     keypad(_window, true);
 
+    // associate menu with window
     set_menu_win(_menu, _window);
+
+    // create sub window for menu
     set_menu_sub(_menu, derwin(_window, menuHeight, menuWidth, 1, 1));
+
+    // create sub window for menu
     set_menu_format(_menu, menuHeight, 1);
+
+    // hide marking char for current menu selection
     set_menu_mark(_menu, "");
 
+    // draw simple box sround window
     box(_window, 0, 0);
+
+    // print heading and user tips
+    mvprintw(0, _horizontalPadding, "%s", "Author: Wolanski Grzegorz");
+    mvprintw(_topPadding - 1, _horizontalPadding, "%s", "Simple table in ncurses");
+    mvprintw(_topPadding + windowHeight, _horizontalPadding, "%s", "Q - exit program");
+    mvprintw(_topPadding + windowHeight + 1, _horizontalPadding, "%s", "r - update each row one after another");
+    mvprintw(_topPadding + windowHeight + 2, _horizontalPadding, "%s", "ENTER - update currently selected row");
     refresh();
 
+    // generate menu with items in the memory of the window
     post_menu(_menu);
     wrefresh(_window);
     refresh();
@@ -142,6 +188,8 @@ void Graphics::init()
 
 void Graphics::refreshMenu()
 {
+    // save current selection so screen will not revert
+    // to the top after update
     ITEM* currentItem = _menu->curitem;
 
     unpost_menu(_menu);
@@ -154,44 +202,60 @@ void Graphics::refreshMenu()
 void Graphics::display()
 {
     uint32_t idx = _baseMenuItemId;
-    uint32_t appValue = 0;
-    uint32_t selection = 0;
-    std::string newRow;
+    uint32_t appendValue = 0;
+    uint32_t selectedItemId = 2;
+    std::vector<std::string> newRowValues;
 
     int32_t option;
     bool quit = false;
 
+    // user can modify only row that are below column titles and their line separator
+    // set current selection from item below column titles separator
+    set_current_item(_menu, _menuItems[2]);
     while(!quit && (option = getch()))
     {
         switch(option)
         {
             case KEY_DOWN:
+                // choose lower item
                 menu_driver(_menu, REQ_DOWN_ITEM);
-                selection++;
+                incrementSelectedItemId(selectedItemId);
                 break;
             case KEY_UP:
-                menu_driver(_menu, REQ_UP_ITEM);
-                selection--;
+                // choose higher item
+                if(selectedItemId > 2)
+                {
+                    menu_driver(_menu, REQ_UP_ITEM);
+                    decrementSelectedItemId(selectedItemId);
+                }
                 break;
             case KEY_NPAGE:
+                // scroll to next page
                 menu_driver(_menu, REQ_SCR_DPAGE);
                 break;
             case KEY_PPAGE:
+                // scroll to previous page
                 menu_driver(_menu, REQ_SCR_UPAGE);
                 break;
             case 'r':
-                newRow = createRow({ "left_column" + std::to_string(appValue), "midd_column" + std::to_string(appValue), "righ_column" + std::to_string(appValue) });
-                _rows[idx] = newRow;
-                _menuItems[idx] = new_item(_rows[idx].c_str(), _rows[idx].c_str());
-                idx++;
-                refreshMenu();
+                // increment each row one after another
+                newRowValues = { "row" + std::to_string(appendValue),
+                                 "row" + std::to_string(appendValue),
+                                 "row" + std::to_string(appendValue),
+                                 "row" + std::to_string(appendValue),
+                                 "row" + std::to_string(appendValue) };
+                updateRow(idx, newRowValues);
+                incrementOrLoopIndexValue(idx, appendValue);
                 break;
             case 10:
-                appValue++;
-                newRow = createRow({ "left_column" + std::to_string(appValue), "midd_column" + std::to_string(appValue), "righ_column" + std::to_string(appValue) });
-                _rows[selection] = newRow;
-                _menuItems[selection] = new_item(_rows[selection].c_str(), _rows[selection].c_str());
-                refreshMenu();
+                // increment currently selected row
+                appendValue++;
+                newRowValues = { "row" + std::to_string(appendValue),
+                                 "row" + std::to_string(appendValue),
+                                 "row" + std::to_string(appendValue),
+                                 "row" + std::to_string(appendValue),
+                                 "row" + std::to_string(appendValue) };
+                updateRow(selectedItemId, newRowValues);
                 break;
             case 'q':
                 quit = true;
@@ -200,12 +264,47 @@ void Graphics::display()
                 break;
         }
 
-        if(idx == _rowsCount - 1)
-        {
-            idx = _baseMenuItemId;
-            appValue++;
-        }
-
         wrefresh(_window);
+    }
+}
+
+void Graphics::updateRow(uint32_t rowIndex, const std::vector<std::string>& rowValues)
+{
+    // create new row from given values
+    std::string newRow = createRow(rowValues);
+
+    // overwrite row at given index
+    _rows[rowIndex] = newRow;
+    _menuItems[rowIndex] = new_item(_rows[rowIndex].c_str(), _rows[rowIndex].c_str());
+
+    // update menu items
+    refreshMenu();
+}
+
+void Graphics::incrementOrLoopIndexValue(uint32_t& idx, uint32_t& appendValue)
+{
+    idx++;
+
+    if(idx == _rowsCount - 1)
+    {
+        idx = _baseMenuItemId;
+        appendValue++;
+        return;
+    }
+}
+
+void Graphics::incrementSelectedItemId(uint32_t& selectedItemId)
+{
+    if(selectedItemId < (_rowsCount - 2))
+    {
+        selectedItemId++;
+    }
+}
+
+void Graphics::decrementSelectedItemId(uint32_t& selectedItemId)
+{
+    if(selectedItemId > 0)
+    {
+        selectedItemId--;
     }
 }

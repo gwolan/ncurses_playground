@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <memory>
 #include <vector>
-#include <Miscellanous/Logger.hpp>
 
 class Graphics
 {
@@ -18,20 +17,23 @@ class Graphics
 
     private:
     std::string createRow(const std::vector<std::string>& columnsValues);
-    void createRows();
+    void createRows(const std::vector<std::vector<std::string>>& rowsValues);
     uint32_t calculateWindowWidth();
     uint32_t calculateWindowHeight();
     uint32_t calculateColumnWidth();
     void initMenuItems();
     void init();
+    void updateRow(uint32_t rowIndex, const std::vector<std::string>& rowValues);
     void refreshMenu();
+    void incrementOrLoopIndexValue(uint32_t& idx, uint32_t& appendValue);
+    void incrementSelectedItemId(uint32_t& selectedItemId);
+    void decrementSelectedItemId(uint32_t& selectedItemId);
 
     WINDOW* _window;
     MENU* _menu;
     ITEM** _menuItems;
 
     std::vector<std::string> _columnsNames;
-    const std::vector<std::vector<std::string>>& _rowsValues;
     std::vector<std::string> _rows;
     const std::string _nullRow;
     const uint32_t _topPadding;
@@ -41,6 +43,4 @@ class Graphics
     uint32_t _columnWidth;
     uint32_t _rowsCount;
     const uint32_t _baseMenuItemId;
-
-    Logger log;
 };
